@@ -1,37 +1,16 @@
-## Welcome to GitHub Pages
+## Systematically tuning a 2×N array of quantum dots with machine learning:
 
-You can use the [editor on GitHub](https://github.com/Gio-A-Oakes/Tuning_DQD/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
+Implementation of an upcoming paper on:
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+> Silicon quantum dots (QDs) are a compelling platform for a fault-tolerant quantum computer due to its scalability, high coherence times and easy integration into current electronics and fabrication lines.
+> However, due to inter-dot coupling, it is difficult to control each QD independently, resulting in a complex calibration process, which becomes impossible to heuristically tune as the number of qubits increases towards a NISQ device.
+> Inspired by recent demonstrations of scalable quantum dot arrays, we develop a framework to tune a 2×N array of QDs, based off gradients of different transition lines that can be measured in multiple two-dimensional stability diagrams.
+> To automate the process, we successfully train a neural network to extract the gradients from a Hough transformation of the stability diagram of a double QD and test the algorithm on simulated data of a 2×2 QD array.
 
-### Markdown
+## Simulating a 2xN array of QDs:
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+The Mosquito project has been making silicon QD arrays by modifying current transistor technology as least as possible, resulting in a 2xN architecture. As a result, the 'random_c' function takes this geometry into account, as the parameter *ratio* is used to determine the relationship between the mutual and cross capacitances perpendicular, parallel or diagonally across the nanowire. Once the 
 
-```markdown
-Syntax highlighted code block
+## Automatically extracting the gradients of a DQD:
 
-# Header 1
-## Header 2
-### Header 3
-
-- Bulleted
-- List
-
-1. Numbered
-2. List
-
-**Bold** and _Italic_ and `Code` text
-
-[Link](url) and ![Image](src)
-```
-
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
-
-### Jekyll Themes
-
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/Gio-A-Oakes/Tuning_DQD/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
-
-### Support or Contact
-
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+## Number of measurements required:
