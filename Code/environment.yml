@@ -1,0 +1,14 @@
+name: Tuning_DQD-environment
+channels:
+  - conda-forge
+dependencies:
+  - python
+  - numpy
+  - matplotlib
+  - pandas
+  - scipy
+  - tensorflow
+  - tensorflow-gpu
+  - pip:
+    - sklearn
+    - scikit-optimize

@@ -9,75 +9,45 @@ Functions required to generate stability diagrams
 """
 import itertools
 import numpy as np
-import scipy.signal as ss
+from scipy.signal import convolve
 
 
-def matrix_data(I, Q, Magnitude, Phase, sizeV, sizeS):
-    """
-    Transform 2xm array to nxn matrix, this is necessary to then obtain FFT data
-
-    :param I: values of I in volts
-    :param Q: values of Q in volts
-    :param Magnitude: value of Magnitude in volts
-    :param Phase: values of phase in volts
-    :param sizeV: number of pixels along y axis
-    :param sizeS: number of pixels along x axis (int(len(Vg2) / sizeV))
-    :return: vi, vq, vm, vp
-    """
-
-    vi, vq, vm, vp = np.zeros(shape=(sizeS, sizeV)), np.zeros(shape=(sizeS, sizeV)), np.zeros(
-        shape=(sizeS, sizeV)), np.zeros(shape=(sizeS, sizeV))
-
-    for i in range(0, sizeS):
-        vi[i, :] = I[range(sizeV * i, sizeV * (i + 1))]
-        vq[i, :] = Q[range(sizeV * i, sizeV * (i + 1))]
-        vm[i, :] = Magnitude[range(sizeV * i, sizeV * (i + 1))]
-        vp[i, :] = Phase[range(sizeV * i, sizeV * (i + 1))]
-
-    return vi, vq, vm, vp
+def rand_c(cs, r):
+    return abs(np.random.normal(cs, cs / 10, 1)) * r
 
 
-def random_c(ci, Cc, Cm, n_qd, ratio):
+def random_c(ci, cc, cm, n_qd, ratio):
     """
     Generates random capacitance matrix when inputting an average value for:
-    :param ci: Gate capacitance
-    :param Cc: Cross capacitance
-    :param Cm: Mutual capacitance
-    :param n_qd: number of QDs
-    :param ratio: ratio between capacitance parallel, perpendicular or diagonally across the nano-wire
-    :return: C, capacitance matrix
+    @param ci: Gate capacitance
+    @param cc: Cross capacitance
+    @param cm: Mutual capacitance
+    @param n_qd: number of QDs
+    @return: c, capacitance matrix
+    @param ratio: ratio between capacitance parallel, perpendicular and diagonally across the nano-wire
     """
-    # Setting up capacitance matrix
-    C, CM = np.zeros(shape=(n_qd, n_qd)), []
-    Cg = abs(np.random.normal(ci, ci / 20, int(n_qd)))  # Gate capacitance
-    CC = np.identity(n_qd) * Cg
-    # Capacitor perpendicular to the nano-wire
-    for j in range(int(n_qd // 2)):
-        C[j * 2, j * 2 + 1] = C[j * 2 + 1, j * 2] = -abs(np.random.uniform(Cm, Cm / 20, 1)) / ratio[0]
-        CC[j * 2, j * 2 + 1] = abs(np.random.uniform(Cc, Cc / 20, 1)) / ratio[0]
-        CC[j * 2 + 1, j * 2] = abs(np.random.uniform(Cc, Cc / 20, 1)) / ratio[0]
-        CM = np.append(CM, abs(C[j * 2, j * 2 + 1]))
-    # Capacitor parallel to the nano-wire
-    for k in range(n_qd - 2):
-        C[k, k + 2] = C[k + 2, k] = -abs(np.random.uniform(Cm, Cm / 20, 1)) / ratio[1]
-        CC[k, k + 2] = abs(np.random.uniform(Cc, Cc / 20, 1)) / ratio[1]
-        CC[k + 2, k] = abs(np.random.uniform(Cc, Cc / 20, 1)) / ratio[1]
-        CM = np.append(CM, abs(C[k, k + 2]))
-    # Capacitor diagonally across to the nano-wire
-    for l in range((n_qd - 2) // 2):
-        C[2 * l, 2 * l + 3] = C[2 * l + 3, 2 * l] = -abs(np.random.uniform(Cm, Cm / 20, 1)) / ratio[2]
-        C[2 * l + 1, 2 * l + 2] = C[2 * l + 2, 2 * l + 1] = -abs(np.random.uniform(Cm, Cm / 20, 1)) / ratio[2]
-        C[l, 3 - l] = C[3 - l, l] = -abs(np.random.uniform(Cm, Cm / 20, 1)) / ratio[2]
-        CC[2 * l, 2 * l + 3], CC[2 * l + 3, 2 * l] = abs(np.random.uniform(Cc, Cc / 20, 1)) / ratio[2], abs(
-            np.random.uniform(Cc, Cc / 20, 1)) / ratio[2]
-        CC[2 * l + 1, 2 * l + 2], CC[2 * l + 2, 2 * l + 1] = abs(np.random.uniform(Cc, Cc / 20, 1)) / ratio[2], abs(
-            np.random.uniform(Cc, Cc / 20, 1)) / ratio[2]
-        CM = np.append(CM, np.append(abs(C[2 * l, 2 * l + 3]), abs(C[2 * l + 1, 2 * l + 2])))
-
+    # Setting up capacitance and cross capacitance matrices
+    c, cg = np.zeros(shape=(n_qd, n_qd)), abs(np.random.normal(ci, ci / 5, int(n_qd)))  # C matrix and Gate capacitance
+    ccs = np.identity(n_qd) * cg
+    # capacitance perpendicular to the nano-wire
+    for i in range(int(n_qd // 2)):
+        c[i * 2, i * 2 + 1] = c[i * 2 + 1, i * 2] = -rand_c(cm, ratio[2])
+        ccs[i * 2, i * 2 + 1], ccs[i * 2 + 1, i * 2] = rand_c(cc, ratio[2]), rand_c(cc, ratio[2])
+    # capacitance parallel to the nano-wire
+    for j in range(n_qd - 2):
+        c[j, j + 2] = c[j + 2, j] = -rand_c(cm, ratio[1])
+        ccs[j, j + 2], ccs[j + 2, j] = rand_c(cc, ratio[1]), rand_c(cc, ratio[1])
+    # capacitance diagonally across the nano-wire
+    for k in range((n_qd - 2) // 2):
+        c[2 * k, 2 * k + 3] = c[2 * k + 3, 2 * k] = -rand_c(cm, ratio[0])
+        c[2 * k + 1, 2 * k + 2] = c[2 * k + 2, 2 * k + 1] = -rand_c(cm, ratio[0])
+        c[k, 3 - k] = c[3 - k, k] = -rand_c(cm, ratio[0])
+        ccs[2 * k, 2 * k + 3], ccs[2 * k + 3, 2 * k] = rand_c(cc, ratio[0]), rand_c(cc, ratio[0])
+        ccs[2 * k + 1, 2 * k + 2], ccs[2 * k + 2, 2 * k + 1] = rand_c(cc, ratio[0]), rand_c(cc, ratio[0])
+    # Total capacitance on dot i
     for i in range(0, n_qd):
-        C[i, i] = np.sum(abs(C[i])) + np.sum(CC[i])
-
-    return C, Cg, CC, CM
+        c[i, i] = np.sum(abs(c[i])) + np.sum(ccs[i])
+    return c, cg, ccs
 
 
 def n_states(n_qd: int, max_e: int, diff: int):
@@ -86,61 +56,75 @@ def n_states(n_qd: int, max_e: int, diff: int):
     :param n_qd: number of QDs
     :param max_e: maximum number of electrons within a specific QD
     :param diff: maximum difference between the two most populated QDs
-    :return: N, all possible electron configurations considered
+    :return: n_st, all possible electron configurations considered
     """
     # Number of possible electron configurations taken into account,
     # the range determines the maximum electron configuration taken into account
-    N = np.fromiter(itertools.product(range(0, max_e), repeat=n_qd), np.dtype('u1,' * n_qd))
-    N = N.view('u1').reshape(-1, n_qd)
+    n_st = np.fromiter(itertools.product(range(0, max_e), repeat=n_qd), np.dtype('u1,' * n_qd))
+    n_st = n_st.view('u1').reshape(-1, n_qd)
 
     # Eliminates transitions that are unlikely to be observed in stability
     # map range that is calculated. Can change the difference between max1 and max2
     # or completely comment this part out if needed
     n = np.array([])
-    for i in range(0, len(N)):
-        max1 = N[i, np.argmax(N[i])]
-        max2 = np.delete(N[i], np.argmax(N[i]))
+    for i in range(0, len(n_st)):
+        max1 = n_st[i, np.argmax(n_st[i])]
+        max2 = np.delete(n_st[i], np.argmax(n_st[i]))
         max2 = max2[np.argmax(max2)]
         if max1 <= max2 + diff:
-            n = np.append(n, N[i])
+            n = np.append(n, n_st[i])
 
     return np.reshape(n, (int(len(n) / n_qd), n_qd))
 
 
-def energy_tensor(N, V, C, CC):
+def reduced_n(n_st, el, dots):
+    n = n_states(2, el + 1, el)
+    ns = np.zeros((len(n_st) * len(n), 4))
+    ns[:, dots[0]] = np.tile(n_st[:, 0], len(n))
+    ns[:, dots[1]] = np.tile(n_st[:, 1], len(n))
+    nt = []
+    for i in range(len(n)):
+        nt = np.append(nt, np.ones(np.shape(n_st)) * n[i])
+    nt = np.reshape(nt, (len(n_st) * len(n), 2))
+    diff = np.setdiff1d([0, 1, 2, 3], dots)
+    ns[:, diff[0]], ns[:, diff[1]] = nt[:, 0], nt[:, 1]
+    return ns
+
+
+def energy_tensor(n, v, c, cc):
     """
     Finds the electron configuration within the ones set in N that gives the lowest energy and assigns the index of
     the state of N to that particular value
-    :param N: all possible electron configurations considered
-    :param V: voltages being applied
-    :param C: capacitance matrix
-    :param CC: cross capacitance matrix
+    :param n: all possible electron configurations considered
+    :param v: voltages being applied
+    :param c: capacitance matrix
+    :param cc: cross capacitance matrix
     :return: 2D array of indices of N that gave the lowest energy for that particular set of voltages
     """
-    q_all = np.einsum('ij,jklm', CC, V) - np.tensordot(np.transpose(N), np.ones(np.shape(V[0, 0])), axes=0)
-    inverse_c = np.linalg.inv(C)
+    q_all = np.einsum('ij,jklm', cc, v) - np.tensordot(np.transpose(n), np.ones(np.shape(v[0, 0])), axes=0)
+    inverse_c = np.linalg.inv(c)
     volt = np.einsum('ij,jklm', inverse_c, q_all)
     u = 0.5 * np.multiply(q_all, volt)
-    E = u.sum(axis=0)
-    return np.argmin(E, axis=0)
+    energy = u.sum(axis=0)
+    return np.argmin(energy, axis=0)
 
 
-def voltage(N_QD, freq, res, N, Cg, dots):
+def voltage(n_qd, freq, res, n, cg, dots):
     """
     Creates numpy array with applied voltages considered
-    :param N_QD: number of QDs
+    :param n_qd: number of QDs
     :param freq: number of repeating honeycombs in stability diagram
-    :param res: resolution (number of pixels rastered)
-    :param N: possible electron configurations
-    :param Cg: array of gate capacitance
+    :param res: resolution (number of pixels)
+    :param n: possible electron configurations
+    :param cg: array of gate capacitance
     :param dots: array of which two QDs are being probed
     :return: numpy array of voltages applied
     """
-    V = np.zeros((N_QD, len(N), res + 1, res + 1))
+    vs = np.zeros((n_qd, len(n), res + 1, res + 1))
     v = np.tile(np.arange(0, res + 1, 1) * freq / res, (res + 1, 1))
-    V[dots[0]] = np.tile(v / Cg[dots[0]], (len(N), 1, 1))
-    V[dots[1]] = np.tile(np.transpose(v) / Cg[dots[1]], (len(N), 1, 1))
-    return V
+    vs[dots[0]] = np.tile(v / cg[dots[0]], (len(n), 1, 1))
+    vs[dots[1]] = np.tile(np.transpose(v) / cg[dots[1]], (len(n), 1, 1))
+    return vs
 
 
 def virtual_volt(v, g):
@@ -154,11 +138,18 @@ def virtual_volt(v, g):
     return np.einsum('ij, jklm', a, v)
 
 
+def add_noise(res, z, blur):
+    gauss = np.random.randn(res, res) / res
+    # Adding gaussian and poisson noise to the intensity
+    z_n = z + np.random.normal(np.mean(z), 1 / blur, np.shape(z)) + np.random.poisson(np.max(z) + 1 / blur, np.shape(z))
+    return 2 * z_n + z_n * gauss  # Adding speckle noise
+
+
 def transition(st, res, signal, blur):
     """
     Transforms array of electron configurations from energy_tensor into a stability diagram with added noise
     :param st: array of electron configuration (output from energy_tensor)
-    :param res: resolution (number of pixels rastered)
+    :param res: resolution (number of pixels)
     :param signal: average signal intensity, defines signal to noise ratio
     :param blur: number of pixels to blur the sample by
     :return: intensity of stability diagram
@@ -174,40 +165,73 @@ def transition(st, res, signal, blur):
 
     # Blur pixels by averaging blur nearest neighbours
     kernel = np.ones((blur, blur)) / blur ** 2
-    blurred_signal = ss.convolve(signal, kernel, mode='same')
+    blurred_signal = convolve(signal, kernel, mode='same')
 
     # Adding noise to signal
-    gauss = np.random.randn(res, res) / res
-    intensity = blurred_signal + np.random.normal(np.mean(blurred_signal), 1 / blur, np.shape(blurred_signal)) + \
-                np.random.poisson(np.max(blurred_signal) + 1 / blur,
-                                  np.shape(blurred_signal))  # Adding gaussian and poisson noise to the intensity
-    intensity = 2 * intensity + intensity * gauss  # Adding speckle noise
-
-    return intensity
+    return add_noise(res, blurred_signal, blur)
 
 
-def stability_diagram(N_QD: int, res: int, dots, ratio, blur, freq):
+def stability_diagram(c, cc, n, v, freq, dots, offset):
     """
-     Generates random capacitance matrix (given in units of e) and corresponding stability diagram
-     :param N_QD: number of quantum dots
-     :param res: resolution in Vg1 and Vg2
-     :param ratio: ratio of Cm and CC capacitance due to geometry of system
-     :param dots: QDs being probed
-     :param freq: number of repeating honeycombs in stability diagram
-     :param blur: number of pixels to blur the sample by
-     :return: stability diagram
+     Generates stability diagram given capacitance matrix
+     @param offset: voltage offset that might be applied
+     @param dots: QDs being probed
+     @param freq: number of repeating honeycombs in stability diagram
+     @param v: voltages being applied
+     @param n: electron configurations being taken into consideration
+     @param cc: cross capacitance matrix
+     @param c: capacitance matrix
+     @return: stability diagram
      """
-    c = sorted(np.random.uniform(1, 0.01, 3))  # Generate random average values for capacitors
-    Cc, Cm, Ci = c[0], c[1], c[2]  # Average mutual, cross and gate capacitance for device
-    signal = np.random.uniform(50, 100, 1)  # Random amount of noise introduced
-    C, Cg, CC, CM = random_c(Ci, Cc, Cm, N_QD, ratio)
-    N = n_states(N_QD, freq + 3, freq + 2)
-    V = voltage(N_QD, freq, res, N, Cg, dots)
-    st = energy_tensor(N, V, C, CC)
-    intensity = transition(st, res, signal, blur)
-    x, y, I = matrix_to_array(intensity)
-    x, y = x / Cg[dots[0]] / res * freq, y / Cg[dots[1]] / res * freq
-    return x, y, I, C, CC
+    signal, blur = np.random.uniform(50, 100, 1), 5
+    st = energy_tensor(n, v, c, cc)
+    intensity = transition(st, (len(st) - 1), signal, blur)
+    x, y, z = matrix_to_array(intensity)
+    x = x / cc[dots[0], dots[0]] / (len(st) - 1) * freq + offset / cc[dots[0], dots[0]]
+    y = y / cc[dots[1], dots[1]] / (len(st) - 1) * freq + offset / cc[dots[1], dots[1]]
+    return x, y, z
+
+
+def rand_c_matrix(n_qd, ratio):
+    c, cg, ccs, con = [], [], [], 3
+    # To reduce numerical errors due to matrix inversion, only accept c matrix with a condition number below 1.5
+    while con > 1.5:
+        rand = np.random.uniform(1, 0.1, 2)
+        ci, cm, cc = rand_c(1, 1), rand_c(rand[0], 1), rand_c(rand[0] * rand[1], 1)
+        c, cg, ccs = random_c(ci, cc, cm, n_qd, ratio)
+        con = np.linalg.cond(c)
+    return c, cg, ccs, con
+
+
+def stab_dqd(res):
+    """
+    @param res: resolution (number of pixels)
+    @return: Stability diagram of a DQD
+    """
+    c, cg, ccs, con = rand_c_matrix(2, np.ones(3))
+    freq = int(np.random.randint(3, 6, 1))
+    n = n_states(2, freq + 4, freq + 3)
+    v = voltage(2, freq, res, n, cg, [0, 1])
+    x, y, z = stability_diagram(c, ccs, n, v, freq, [0, 1], 0)
+    return x, y, z, c, ccs, [0, 1]
+
+
+def stab_fqd(res):
+    """
+    @param res: resolution (number of pixels)
+    @return: Stability diagram of a 2x2 QD
+    """
+    ratio, dots = sorted(np.random.uniform(0.3, 1, 3)), [0, int(np.random.randint(1, 4, 1))]
+    c, cg, ccs, con = rand_c_matrix(4, ratio)
+    freq, offset = int(np.random.randint(3, 6, 1)), int(np.random.randint(1, 7, 1) / abs(c[0, dots[1]]))
+    # Try to reduce amount of RAM required to run
+    n = n_states(2, freq + 4, freq + 3)
+    ns = reduced_n(n, freq, dots)
+    ns[:, dots[0]], ns[:, dots[1]] = ns[:, dots[0]] + offset, ns[:, dots[1]] + offset
+    v = voltage(4, freq, res, ns, cg, dots)
+    v[dots[0]], v[dots[1]] = v[dots[0]] + offset/cg[dots[0]], v[dots[1]] + offset/cg[dots[1]]
+    x, y, z = stability_diagram(c, ccs, ns, v, freq, dots, offset)
+    return x, y, z, c, ccs, dots
 
 
 def g2_matrix(grad):
@@ -227,10 +251,10 @@ def rotate(g, xs, ys):
     """
     Rotate data according to G matrix (this only works for DQD)
     Otherwise use virtual_volt to then calculate stability diagram in virtual voltage space
-    :param g: G transformation matrix for a DQD
-    :param xs: Data points in x
-    :param ys: Data points in y
-    :return: Rotated data into virtual voltage space
+    @param g: G transformation matrix for a DQD
+    @param xs: Data points in x
+    @param ys: Data points in y
+    @return: Rotated data into virtual voltage space
     """
     return np.matmul(g, np.vstack([xs, ys]))
 
@@ -238,8 +262,8 @@ def rotate(g, xs, ys):
 def matrix_to_array(int_matrix):
     """
     Converts stability diagram matrix into x, y and intensity arrays
-    :param int_matrix: stability diagram matrix
-    :return: x, y, intensity
+    @param int_matrix: stability diagram matrix
+    @return: x, y, intensity
     """
     res_x, res_y = len(int_matrix[0]), len(int_matrix)
     x, y = [], []
@@ -254,12 +278,28 @@ def matrix_to_array(int_matrix):
 def grad_two_dot(c, cc):
     """
     Calculates exact gradients from classical stability map of a two quantum dot (CC not taken into account)
-    :param c: capacitance matrix
-    :param cc: cross capacitance matrix
-    :return: array of ascending order of gradients
+    @param c: capacitance matrix
+    @param cc: cross capacitance matrix
+    @return: array of ascending order of gradients
     """
     c1, c2 = c[0, 0], c[1, 1]
     cg1, cg2, cm = cc[0, 0], cc[1, 1], -c[0, 1]
     return np.array((-(cg1 * c2) / (cg2 * cm),
                      -(cg1 * cm) / (cg2 * c1),
                      (cg1 * (cm - c2)) / (cg2 * (cm - c1))))
+
+
+def analytical_grad(c, cc, dots):
+    """
+    Calculates exact reservoir to QD gradients from classical stability map of a 2xN array of QDs
+    Although this is a more general solution, there can be numerical errors due to matrix inversion
+    @param c: capacitance matrix
+    @param cc: cross capacitance matrix
+    @param dots: quantum dots being probed
+    @return: array of ascending order of gradients
+    """
+    a = np.linalg.inv(c.astype(np.float64)).astype(np.float128)
+    rx = -(np.dot(cc[:, dots[0]], a[dots[0]])) / (np.dot(cc[:, dots[1]], a[dots[0]]))
+    ry = -(np.dot(cc[:, dots[0]], a[dots[1]])) / (np.dot(cc[:, dots[1]], a[dots[1]]))
+    rm = -(np.dot(cc[:, dots[0]], (a[dots[1]] - a[dots[0]]))) / (np.dot(cc[:, dots[1]], (a[dots[1]] - a[dots[0]])))
+    return [rx, ry, rm]
