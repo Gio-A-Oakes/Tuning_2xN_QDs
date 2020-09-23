@@ -34,11 +34,11 @@ def stab_red(n_qd, res):
 
 def line_to_theta(n_qd: int, res: int):
     xs, ys, c, cc, dots = stab_red(n_qd, res)
-    theta = np.reshape(np.linspace(-np.pi / 2, np.pi / 2, 1000 + 1), (1, 1000 + 1))  # Creating theta array
+    theta = np.reshape(np.linspace(0, np.pi / 2, 500 + 1), (1, 500 + 1))  # Creating theta array
     # frequency and theta values extracted from Hough transform
     freq_t = hough_theta(np.transpose(np.vstack([xs, ys])), theta)
     p = stab.analytical_grad(c, cc, dots)
-    return freq_t, p
+    return freq_t, p[:2]
 
 
 def create_grad_library(n: int):
@@ -48,7 +48,7 @@ def create_grad_library(n: int):
     @return: pandas data-frame
     """
     # TODO try to parallelize for loop
-    index = list(np.arange(0, 1001 + 3, 1))
+    index = list(np.arange(0, 501 + 2, 1))
     df = pd.DataFrame(columns=index)
 
     for i in range(n):
@@ -65,7 +65,7 @@ def save_df(df, name):
     df.to_csv((str(name) + '.csv'), index=False)
 
 
-def create_model(learning_rate, num_dense_layers, num_dense_nodes, dropout):
+def create_model(learning_rate, num_dense_layers, num_dense_nodes, dropout=0.05):
     """
     Creates model architecture for a NN to train on given different parameters
     @param learning_rate: learning rate of NN
@@ -76,7 +76,7 @@ def create_model(learning_rate, num_dense_layers, num_dense_nodes, dropout):
     """
     # This model used ReLU for activation and a he_uniform initializer
     model = Sequential()
-    model.add(Dense(1001, activation='relu', input_shape=(1001,), kernel_initializer=initializers.he_uniform()))
+    model.add(Dense(501, activation='relu', input_shape=(501,), kernel_initializer=initializers.he_uniform()))
     # create a loop making a new dense layer for the amount passed to this model.
     # naming the layers helps avoid tensorflow error deep in the stack trace.
     for i in range(num_dense_layers):
@@ -110,12 +110,12 @@ def bayesian_optimisation(x_train, y_train, param_0):
                                       name='learning_rate')
     dim_num_dense_layers = sk.space.Integer(low=1, high=5, name='num_dense_layers')
     dim_num_dense_nodes = sk.space.Integer(low=30, high=512, name='num_dense_nodes')
-    dim_dropout = sk.space.Real(low=0, high=0.5, name='dropout')
+    # dim_dropout = sk.space.Real(low=0, high=0.5, name='dropout')
 
     dimensions = [dim_learning_rate,
                   dim_num_dense_layers,
-                  dim_num_dense_nodes,
-                  dim_dropout
+                  dim_num_dense_nodes
+                  # dim_dropout
                   ]
 
     # Function to evaluate validation MSE for given hyper-parameters
@@ -125,7 +125,7 @@ def bayesian_optimisation(x_train, y_train, param_0):
         model = create_model(learning_rate=learning_rate,
                              num_dense_layers=num_dense_layers,
                              num_dense_nodes=num_dense_nodes,
-                             dropout=dropout
+                             # dropout=dropout
                              )
         # Train NN with given hyper-parameters
         blackbox = model.fit(x=x_train.values,  # named blackbox because it represents the structure
@@ -155,16 +155,16 @@ def bayesian_optimisation(x_train, y_train, param_0):
     return gp_result
 
 
-def nn_training_data(name: str, split=0.20):
+def nn_training_data(name: str, split=0.10):
     """
     Splits and normalises data_frame into train and test data
-    @param split: split between train and test data, default is 0.2
+    @param split: split between train and test data, default is 0.1
     @param name: Name of pandas data frame to load
     @return:
     """
     # load data
     df = pd.read_csv(name, index_col=False)
-    x, y = df.iloc[:, :1001], df.iloc[:, 1001:]
+    x, y = df.iloc[:, :501], df.iloc[:, 501:]
     y = np.arctan(-1 / y)
     # Split between training and test data
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=split)
@@ -215,15 +215,13 @@ def save_model(name, model, r_x):
 def load_model(name):
     model = tf.keras.models.load_model((name + '.h5'))
     r_x = pd.read_csv(('rx_' + name + '.csv'), index_col=False)
-    r_y = pd.read_csv(('ry_' + name + '.csv'), index_col=False)
-    y_train = pd.read_csv(('yt_' + name + '.csv'), index_col=False)
-    return model, r_x, r_y, y_train
+    return model, r_x
 
 
 def predict_exp(model, freq, r_x):
-    index = list(np.arange(0, 1001 + 3, 1))
+    index = list(np.arange(0, 501, 1))
     df = pd.DataFrame(columns=index)
     df = df.append(np.transpose(pd.DataFrame(freq)))
-    df = df / np.transpose(r_x)
+    df = df / np.transpose(r_x.values)
     t = model.predict(df.values) * np.pi / 2
-    return -1 / np.tan(t)
+    return -1 / np.tan(t[0])

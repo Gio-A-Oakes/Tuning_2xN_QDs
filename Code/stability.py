@@ -10,6 +10,7 @@ Functions required to generate stability diagrams
 import itertools
 import numpy as np
 from scipy.signal import convolve
+import matplotlib.pyplot as plt
 
 
 def rand_c(cs, r):
@@ -187,8 +188,8 @@ def stability_diagram(c, cc, n, v, freq, dots, offset):
     st = energy_tensor(n, v, c, cc)
     intensity = transition(st, (len(st) - 1), signal, blur)
     x, y, z = matrix_to_array(intensity)
-    x = x / cc[dots[0], dots[0]] / (len(st) - 1) * freq + offset / cc[dots[0], dots[0]]
-    y = y / cc[dots[1], dots[1]] / (len(st) - 1) * freq + offset / cc[dots[1], dots[1]]
+    x = x / cc[dots[0], dots[0]] / (len(st) - 1) * freq + int(offset[0]) / cc[dots[0], dots[0]]
+    y = y / cc[dots[1], dots[1]] / (len(st) - 1) * freq + int(offset[1]) / cc[dots[1], dots[1]]
     return x, y, z
 
 
@@ -205,31 +206,41 @@ def rand_c_matrix(n_qd, ratio):
 
 def stab_dqd(res):
     """
-    @param res: resolution (number of pixels)
+    @param res: resolution (number of pixels rastered)
     @return: Stability diagram of a DQD
     """
-    c, cg, ccs, con = rand_c_matrix(2, np.ones(3))
+    con = 3
+    while con > 1.25:
+        rand = np.random.uniform(1, 0.1, 2)
+        ci, cm, cc = rand_c(1, 1), rand_c(rand[0], 1), rand_c(rand[0] * rand[1], 1)
+        c, cg, ccs = random_c(ci, cc, cm, 2, np.ones(3))
+        con = np.linalg.cond(c)
     freq = int(np.random.randint(3, 6, 1))
     n = n_states(2, freq + 4, freq + 3)
     v = voltage(2, freq, res, n, cg, [0, 1])
-    x, y, z = stability_diagram(c, ccs, n, v, freq, [0, 1], 0)
+    x, y, z = stability_diagram(c, ccs, n, v, freq, [0, 1], np.zeros(2))
     return x, y, z, c, ccs, [0, 1]
 
 
 def stab_fqd(res):
     """
-    @param res: resolution (number of pixels)
+    @param res: resolution (number of pixels rastered)
     @return: Stability diagram of a 2x2 QD
     """
+    con = 3
     ratio, dots = sorted(np.random.uniform(0.3, 1, 3)), [0, int(np.random.randint(1, 4, 1))]
-    c, cg, ccs, con = rand_c_matrix(4, ratio)
-    freq, offset = int(np.random.randint(3, 6, 1)), int(np.random.randint(1, 7, 1) / abs(c[0, dots[1]]))
+    while con > 1.25:
+        rand = np.random.uniform(1, 0.1, 2)
+        ci, cm, cc = rand_c(1, 1), rand_c(rand[0], 1), rand_c(rand[0] * rand[1], 1)
+        c, cg, ccs = random_c(ci, cc, cm, 4, ratio)
+        con = np.linalg.cond(c)
+    freq, offset = int(np.random.randint(3, 6, 1)), np.random.randint(1, 7, 2) / cg[dots]
     # Try to reduce amount of RAM required to run
     n = n_states(2, freq + 4, freq + 3)
     ns = reduced_n(n, freq, dots)
-    ns[:, dots[0]], ns[:, dots[1]] = ns[:, dots[0]] + offset, ns[:, dots[1]] + offset
+    ns[:, dots[0]], ns[:, dots[1]] = ns[:, dots[0]] + int(offset[0]), ns[:, dots[1]] + int(offset[1])
     v = voltage(4, freq, res, ns, cg, dots)
-    v[dots[0]], v[dots[1]] = v[dots[0]] + offset/cg[dots[0]], v[dots[1]] + offset/cg[dots[1]]
+    v[dots[0]], v[dots[1]] = v[dots[0]] + int(offset[0]) / cg[dots[0]], v[dots[1]] + int(offset[1]) / cg[dots[1]]
     x, y, z = stability_diagram(c, ccs, ns, v, freq, dots, offset)
     return x, y, z, c, ccs, dots
 
@@ -289,6 +300,23 @@ def grad_two_dot(c, cc):
                      (cg1 * (cm - c2)) / (cg2 * (cm - c1))))
 
 
+def alpha_matrix(grad_neg):
+    """
+    Extracts alpha matrix from negative gradients
+    :param grad_neg: negative fitted gradients
+    :param N_QD: number of QDs
+    :return: alpha matrix
+    """
+    t = np.arctan(grad_neg)
+
+    alpha = np.zeros((2, 2))
+
+    alpha[0, 0], alpha[0, 1] = -np.sin(t[0]), np.cos(t[0])
+    alpha[1, 0], alpha[1, 1] = -np.sin(t[1]), np.cos(t[1])
+
+    return alpha / alpha[0, 0]
+
+
 def analytical_grad(c, cc, dots):
     """
     Calculates exact reservoir to QD gradients from classical stability map of a 2xN array of QDs
@@ -303,3 +331,40 @@ def analytical_grad(c, cc, dots):
     ry = -(np.dot(cc[:, dots[0]], a[dots[1]])) / (np.dot(cc[:, dots[1]], a[dots[1]]))
     rm = -(np.dot(cc[:, dots[0]], (a[dots[1]] - a[dots[0]]))) / (np.dot(cc[:, dots[1]], (a[dots[1]] - a[dots[0]])))
     return [rx, ry, rm]
+
+
+def plot_stab(x, y, volt, dots, **kwargs):
+    z = kwargs.get('z', None)
+    val = dots + np.ones(2)
+    if z is not None:
+        plt.scatter(x, y, c=z, s=5, cmap='inferno')
+    else:
+        plt.scatter(x, y, c='k', s=5)
+    plt.xlim(np.min(x), np.max(x))
+    plt.ylim(np.min(y), np.max(y))
+    plt.gca().set_aspect('equal', adjustable='box')
+    if volt == 'V':
+        plt.xlabel(r'$V_{g%s}$ (V)' % int(val[0]), fontsize=24)
+        plt.ylabel(r'$V_{g%s}$ (V)' % int(val[1]), fontsize=24)
+    elif volt == 'U':
+        plt.xlabel(r'$U_{%s}$ (V)' % int(val[0]), fontsize=24)
+        plt.ylabel(r'$U_{%s}$ (V)' % int(val[1]), fontsize=24)
+    plt.tight_layout()
+
+
+def plot_c(c, cc):
+    # Plot table of C matrix used
+    fig = plt.figure(figsize=(8, 1))
+    ax1 = fig.add_subplot(1, 2, 1)
+    ax1.table(cellText=np.round(c, 3),
+              loc="center"
+              )
+    ax1.set_title("C matrix")
+    ax1.axis("off")
+    # Plot table of CC matrix used
+    ax2 = fig.add_subplot(1, 2, 2)
+    ax2.table(cellText=np.round(cc, 3),
+              loc="center"
+              )
+    ax2.set_title("CC matrix")
+    ax2.axis("off")

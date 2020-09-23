@@ -9,6 +9,7 @@ of a Gaussian fit of the intensity histogram to the total area of the intensitie
 import numpy as np
 import scipy.optimize as opt
 from scipy.signal import medfilt2d, savgol_filter
+from scipy.ndimage import correlate
 from sklearn.neighbors import KDTree
 
 
@@ -22,6 +23,10 @@ def hist_data(z):
     x = data[1]
     x = np.array([(x[i] + x[i + 1]) / 2 for i in range(0, len(x) - 1)])
     return x, np.array(data[0])
+
+
+def gauss(x, *params):
+    return abs(params[2]) * np.exp(-(x - params[0]) ** 2 / (2 * params[1] ** 2))
 
 
 def multi_gaussian(x, *params):
@@ -74,9 +79,26 @@ def gradient(x, y, z):
     @param z: intensities
     @return:
     """
-    m_z = np.reshape(z, (len(np.unique(y)), len(np.unique(x))))  # Transform array into matrix
-    sg = savgol_filter(m_z, 5, 2) + savgol_filter(m_z, 5, 2, axis=0)  # Savgol filter acts as a low pass band filter
-    return np.reshape(sg, np.shape(x))
+    m_z = np.reshape(z, (len(np.unique(y)), len(np.unique(x))))# Transform array into matrix
+    sg = savgol_filter(m_z, 5, 2) + savgol_filter(m_z, 5, 2, axis=0) # Savgol filter acts as a low pass band filter
+    signal = sg - np.mean(sg) + np.mean(m_z)
+    return np.reshape(signal, np.shape(x))
+
+
+def gradient_exp(x, y, z):
+    """
+    Calculates gradient along x and y of intensities to reduce noise
+    @param x: x vales
+    @param y: y values
+    @param z: intensities
+    @return:
+    """
+    m_z = np.reshape(z, (len(np.unique(y)), len(np.unique(x))))# Transform array into matrix
+    diff = [[0, -1, 0], [-1, 5, -1], [0, -1, 0]]
+    z_diff = correlate(m_z, diff)
+    sg = savgol_filter(z_diff, 5, 2) + savgol_filter(z_diff, 5, 2, axis=0) # Savgol filter acts as a low pass band filter
+    signal = sg - np.mean(sg) + np.mean(m_z)
+    return np.reshape(signal, np.shape(x))
 
 
 def filtering(x, y, z):
@@ -91,30 +113,111 @@ def normalise(z):
     :param z: Raw data that needs normalising
     :return: Normalised data
     """
-    return (abs(z) - min(abs(z))) / (max(abs(z)) - min(abs(z)))
+    return (z - np.min(z)) / (np.max(z) - np.min(z))
 
 
-def two_gauss(z):
-    x, y = hist_data(z)
+def fit_gauss(z):
+    intensity = normalise(z)
+    x, y = hist_data(intensity)
     guess = np.append(0, np.append(np.median(y), np.append(np.median(x[np.where(y == np.max(y))]),
                                                            np.append(np.std(x[np.where(y > np.median(y))]),
                                                                      np.max(y)))))
 
     fit_param, cov = opt.curve_fit(multi_gauss_background, x, y, guess)
-    guess = greedy_guess(fit_param, x, y)
-
-    fit_param, cov = opt.curve_fit(multi_gauss_background, x, y, guess)
-    if fit_param[3] > fit_param[2]:
-        return np.where(z > fit_param[3] + 4 * abs(fit_param[5]))
+    if fit_param[2] > 0.5:
+        index = np.where(intensity<fit_param[2]-3*abs(fit_param[3]))
     else:
-        return np.where(z < fit_param[2] - 4 * abs(fit_param[4]))
+        index = np.where(intensity>fit_param[2]+3*abs(fit_param[3]))
+    return index
 
 
-def threshold_two_gauss(vg1, vg2, i, q):
-    i_g, q_g = gradient(vg1, vg2, i), gradient(vg1, vg2, q)
-    m_i, m_q = two_gauss(i_g), two_gauss(q_g)
+def curved_plane(x, y, param):
+    return param[0]*x + param[1]*x**2 + param[2]*y + param[3]*y**2 + param[4]*x*y + param[5]
+
+
+def linear_plane(x, y, param):
+    return param[0]*x + param[1]*y + param[2]
+
+
+def minimise_plane(param, x, y, z):
+    return np.sum((z - linear_plane(x, y, param))**2)
+
+def linear(x, z):
+    return (np.median(z[np.where(x==np.min(x))])-np.median(z[np.where(x==np.max(x))]))/(np.min(x)-np.max(x))
+
+
+def remove_background(x, y, z):
+    p = gradient_exp(x, y, z)
+    param = np.array((linear(x, z), linear(y,z), np.median(p)))
+    sol = opt.minimize(minimise_plane, param, args=(x, y, p)) 
+    p_n = normalise(p - linear_plane(x, y, sol.x))
+    return p_n*(np.max(z)-np.min(z)) + np.min(z)
+
+
+def get_klpq_div(p_probs, q_probs):
+    # Calcualtes the Kullback-Leibler divergence between pi and qi
+    kl_div = 0.0
+    
+    for pi, qi in zip(p_probs, q_probs):
+        kl_div += pi*np.log(pi/qi)
+    
+    return kl_div
+
+
+def D_KL(threshold, x, y):
+    # Finds best fit Gaussian distribution and calculates the corresponding Kullback-Leibler divergence
+    index = np.where(x<=threshold)
+    xs, ys = x[index], y[index]
+    ys = ys/np.trapz(ys)
+    guess = np.append(np.median(xs[np.where(ys == np.max(ys))]),
+                      np.append(np.std(xs[np.where(ys > np.median(ys))]),
+                                np.max(ys)))
+
+    fit_param, cov = opt.curve_fit(gauss, xs, ys, guess)
+    return get_klpq_div(ys+1, gauss(xs, *fit_param)+1)
+
+
+def minimise_DKL(x, y, mu):
+    # Finds datapoint that minimises the Kullback-Leibler divergence
+    eps, x0 = 1/len(x), mu+np.std(x)/2
+    grads, grad = 1, 0
+    
+    while grads >= 0:
+        prev_grad = grad
+        grad = (D_KL(x0+eps, x, y)-D_KL(x0-eps, x, y))/(2*eps)
+        
+        if grad > 0:
+            x0 = x0-eps
+            
+        else:
+            x0 = x0+eps
+            
+        grads = grad * prev_grad
+        
+    return x0
+
+
+def threshold_DKL(z):
+    
+    intensity = normalise(z)
+    x, y = hist_data(intensity)
+    y = y**0.5 # Broadens peak to allow to identify finer structure in the intensity
+    mu = x[np.where(y==np.max(y))]
+    if mu > 0.5:
+        x, mu = 1 - x, 1 - mu
+        index = np.where(intensity < 1 - minimise_DKL(x, y, mu))
+    else:
+        index = np.where(intensity > minimise_DKL(x, y, mu))
+        
+    return index
+
+
+def threshold_experimental(vg1, vg2, i, q):
+    
+    i_g, q_g = remove_background(vg1, vg2, i), remove_background(vg1, vg2, q)
+    m_i, m_q = threshold_DKL(i_g), threshold_DKL(q_g)
     index = np.unique(np.append(m_i, m_q))
-    intensity = normalise(i[index]) + normalise(q[index])
+    intensity = normalise(i_g[index]) + normalise(q_g[index])
     return vg1[index], vg2[index], intensity
 
 
@@ -241,7 +344,7 @@ def hough_distribution(data, theta):
     h, angle, d, index_t, index_d, _ = hough(data, theta)
     i_p, _ = np.histogram(angle[index_t], weights=h[index_t, index_d] ** 2, bins=int(len(theta[0])),
                           range=(-np.pi / 2, np.pi / 2))
-    i_d, _ = np.histogram(d[index_d], weights=h[index_t, index_d] ** 2, bins=1001, range=(-2, 2))
+    i_d, _ = np.histogram(d[index_d], weights=h[index_t, index_d] ** 2, bins=len(theta[0]), range=(-2, 2))
     i_d = np.diff(i_d)
     return i_p / np.trapz(i_p), i_d / np.max(i_d)
 
@@ -256,27 +359,23 @@ def hough_theta(data, theta, **kwargs):
     w = kwargs.get('weights', None)
     h, angle, d, index_t, index_d, _ = hough(data, theta, weights=w)
     i_p, _ = np.histogram(angle[index_t], weights=h[index_t, index_d] ** 2, bins=int(len(theta[0])),
-                          range=(-np.pi / 2, np.pi / 2))
+                          range=(0, np.pi / 2))
     return i_p / np.trapz(i_p)
 
 
-def line_fit(vg1: tuple, vg2: tuple, i: tuple, q: tuple):
+def line_fit(x, y, z):
     """
     Obtain gradients and intercepts of the lines within a stability diagram
 
-    :param vg1: Voltages along x axis
-    :param vg2: Voltages along y axis
-    :param i: Values of I in volts
-    :param q: Values of Q in volts
+    :param x: Voltages along x axis
+    :param y: Voltages along y axis
+    :param z: Intensity
     :return: gradients, y-intercepts and R^2 values separated as positive or negative gradients
     """
-
-    x, y, z = threshold_two_gauss(vg1, vg2, i, q)
     # Reduce number of points by taking the weighted average along x and y
-    xs, ys, _ = averaging_xy(x, y, z, np.int((len(x)) ** 0.5 * 10), np.int((len(x)) ** 0.4))
-    theta = np.reshape(np.linspace(-np.pi / 2, np.pi / 2, 1000 + 1), (1, 1000 + 1))
-    x_n, y_n, f = normalise_hough(np.transpose(np.vstack([xs, ys])))
+    xs, ys, _ = averaging_xy(x, y, z, 50, 10)
+    theta = np.reshape(np.linspace(0, np.pi / 2, 500 + 1), (1, 500 + 1))
     # frequency and theta values extracted from Hough transform
-    freq = hough_theta(np.transpose(np.vstack([x_n, y_n])), theta)
+    freq = hough_theta(np.transpose(np.vstack([xs, ys])), theta)
 
-    return xs, ys, f, freq
+    return xs, ys, freq
