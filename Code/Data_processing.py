@@ -166,7 +166,7 @@ def get_klpq_div(p_probs, q_probs):
 
 def D_KL(threshold, x, y):
     # Finds best fit Gaussian distribution and calculates the corresponding Kullback-Leibler divergence
-    index = np.where(x<=threshold)
+    index = np.where(np.logical_and(x>=threshold[0], x<=threshold[1]))
     xs, ys = x[index], y[index]
     ys = ys/np.trapz(ys)
     guess = np.append(np.median(xs[np.where(ys == np.max(ys))]),
@@ -177,24 +177,18 @@ def D_KL(threshold, x, y):
     return get_klpq_div(ys+1, gauss(xs, *fit_param)+1)
 
 
-def minimise_DKL(x, y, mu):
-    # Finds datapoint that minimises the Kullback-Leibler divergence
-    eps, x0 = 1/len(x), mu+np.std(x)/2
-    grads, grad = 1, 0
-    
-    while grads >= 0:
-        prev_grad = grad
-        grad = (D_KL(x0+eps, x, y)-D_KL(x0-eps, x, y))/(2*eps)
-        
-        if grad > 0:
-            x0 = x0-eps
-            
-        else:
-            x0 = x0+eps
-            
-        grads = grad * prev_grad
-        
-    return x0
+def minimise_DKL(x, y):
+    # Estimate first guess and boundaries to use:
+    guess = np.append(np.median(x[np.where(y == np.max(y))]),
+                      np.append(np.std(x[np.where(y > np.median(y))]),
+                                np.max(y)))
+
+    fit_param, cov = opt.curve_fit(gauss, x, y, guess)    
+    x0 = [fit_param[0]-2*fit_param[1], fit_param[0]+2*fit_param[1]]
+    bound = ((np.min(x), fit_param[0]-fit_param[1]), (fit_param[0]+fit_param[1], np.max(x)))
+    # Find optimal bound solutions
+    sol = opt.minimize(D_KL, x0, jac=None, method='L-BFGS-B', options={'eps':1/len(x)}, args=(x, y), bounds=bound)
+    return sol.x
 
 
 def threshold_DKL(z):
@@ -202,14 +196,20 @@ def threshold_DKL(z):
     intensity = normalise(z)
     x, y = hist_data(intensity)
     y = y**0.5 # Broadens peak to allow to identify finer structure in the intensity
-    mu = x[np.where(y==np.max(y))]
-    if mu > 0.5:
-        x, mu = 1 - x, 1 - mu
-        index = np.where(intensity < 1 - minimise_DKL(x, y, mu))
-    else:
-        index = np.where(intensity > minimise_DKL(x, y, mu))
+    
+    threshold = minimise_DKL(x, y)
+    index = np.where(np.logical_or(intensity<=threshold[0], intensity>=threshold[1]))
         
     return index
+
+
+def intense(z, index):
+    x, y = hist_data(z)
+    guess = np.append(np.median(x[np.where(y == np.max(y))]),
+                      np.append(np.std(x[np.where(y > np.median(y))]),
+                                np.max(y)))
+    fit_param, cov = opt.curve_fit(gauss, x, y, guess)  
+    return z[index]-fit_param[0]
 
 
 def threshold_experimental(vg1, vg2, i, q):
@@ -217,7 +217,7 @@ def threshold_experimental(vg1, vg2, i, q):
     i_g, q_g = remove_background(vg1, vg2, i), remove_background(vg1, vg2, q)
     m_i, m_q = threshold_DKL(i_g), threshold_DKL(q_g)
     index = np.unique(np.append(m_i, m_q))
-    intensity = normalise(i_g[index]) + normalise(q_g[index])
+    intensity = normalise(abs(intense(i_g, index)))+normalise(abs(intense(q_g, index)))
     return vg1[index], vg2[index], intensity
 
 
