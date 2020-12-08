@@ -1,8 +1,9 @@
-## Systematically tuning a 2×N array of quantum dots with machine learning:
+## Automatic virtual voltage extraction of a 2×N array of quantum dots with machine learning:
 
-Implementation of an upcoming paper on:
+Implementation of the paper:
 
-> Spin qubits in quantum dots are a compelling platform for fault-tolerant quantum computing due to the potential tofabricate  dense  two-dimensional  arrays  with  nearest  neighbour  couplings,  a  requirement  to  implement  the  surfacecode.  However,  due to the proximity of the surface gate electrodes cross-coupling capacitances can be substantial,making it difficult to control each quantum dot independently. By increasing the number of quantum dots increases thecomplexity of the calibration process, which becomes impractical to do heuristically. Inspired by recent demonstrationsof industry-fabricated silicon quantum dot bilinear arrays, we develop a theoretical framework to tune a 2×N array ofquantum dots,  based on the gradients in gate voltage space of different charge transitions that can be measured inmultiple two-dimensional charge stability diagrams.  To automate the process, we successfully train a neural networkto extract the gradients from a Hough transformation from a stability diagram and test the algorithm on simulated andexperimental data of a 2×2 quantum dot array
+[arxiv preprint](https://arxiv.org/abs/2012.03685)
+
 
 ## Simulating a 2xN array of QDs:
 
