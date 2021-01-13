@@ -93,7 +93,7 @@ def gradient_exp(x, y, z):
     @param z: intensities
     @return:
     """
-    m_z = np.reshape(z, (len(np.unique(y)), len(np.unique(x))))# Transform array into matrix
+    m_z = np.reshape(z, (len(np.unique(x)), len(np.unique(y))))# Transform array into matrix
     diff = [[0, -1, 0], [-1, 5, -1], [0, -1, 0]]
     z_diff = correlate(m_z, diff)
     sg = savgol_filter(z_diff, 5, 2) + savgol_filter(z_diff, 5, 2, axis=0) # Savgol filter acts as a low pass band filter
