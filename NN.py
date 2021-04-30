@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import tensorflow_addons as tfa
 import skopt as sk
 from sklearn.model_selection import train_test_split
 from tensorflow.keras import initializers
@@ -9,10 +10,11 @@ from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 from tensorflow.python.keras import backend as k
-
+from sklearn.ensemble import RandomForestRegressor
+import joblib
 import stability as stab
 from Data_processing import hough_theta, averaging_xy, threshold_theoretical
-
+import multiprocessing as mp
 
 def stability_generator(n_qd, res):
     if n_qd == 2:
@@ -174,6 +176,14 @@ def nn_training_data(name: str, split=0.10):
     return x_train, y_train, x_test, y_test, r_x
 
 
+def RF_training(name: str, split=0.1):
+    # load data
+    x_train, y_train, x_test, y_test, r_x = nn_training_data(name, split)
+    rf = RandomForestRegressor(n_estimators=1000, random_state=42)
+    rf.fit(x_train.values, y_train.values)
+    return rf
+    
+    
 def fit_model(model, x_train, y_train, val_split=0.15):
     black_box = model.fit(x_train.values, y_train.values, epochs=100, verbose=0, validation_split=val_split)
     return black_box
@@ -225,3 +235,151 @@ def predict_exp(model, freq, r_x):
     df = df / np.transpose(r_x.values)
     t = model.predict(df.values) * np.pi / 2
     return -1 / np.tan(t[0])
+
+def load_all_models(n_models):
+    all_models = list()
+    reg_tree = joblib.load('models/tree_reg.sav')
+    all_models.append(reg_tree)
+    print('>loaded %s' % reg_tree)
+    for i in range(n_models):
+        # define filename for this ensemble
+        NN1 = 'models/NN_' + str(i) + '.h5'
+#         NN2 = 'models/NN_' + str(i*2+1) + '.h5'
+        RF = 'models/RF_' + str(i) + '.sav'
+        # load model from file
+        nn1 = tf.keras.models.load_model(NN1)
+#         nn2 = tf.keras.models.load_model(NN2)
+        rf = joblib.load(RF)
+        # add to list of members
+        all_models.append(nn1)
+#         all_models.append(nn2)
+        all_models.append(rf)
+        print('>loaded %s' % nn1)
+#         print('>loaded %s' % nn2)
+        print('>loaded %s' % rf)
+    return all_models
+
+
+def stacked_predict(members, val):
+    
+    predict = None
+    err_one, err_two = [], []
+    X = tf.constant(val)
+    i = 0
+    for model in members:
+        # make prediction
+        # stack predictions into [rows, members, probabilities]
+        if predict is None:
+            predict = model.predict(val)
+        else:
+            if i%2 == 0:
+                er_o, er_t = pred_ints(model, val)
+                err_one, err_two = np.append(err_one, er_o), np.append(err_two, er_t)
+                yhat = model.predict(val)
+            else:
+                yhat = model.predict(X)
+            predict = np.dstack((predict, yhat))
+        i = i + 1
+            
+    std = np.std(np.pi / 2 * predict, axis=2) * 11
+    std = np.sqrt(std**2 + [np.sum(err_one**2), np.sum(err_two**2)]) / 11
+    predict = np.pi / 2 * (np.mean(predict, axis=2))
+    return predict[0], std[0]
+
+
+def pred_ints(model, X, percentile=84.13):
+    # If assume Gaussian distribution, this percentile should give values one sigma away from the mean
+    pred_one, pred_two = [], []
+    for pred in model.estimators_:
+        preds = np.pi / 2 * pred.predict(X)
+        pred_one.append(preds[0][0])
+        pred_two.append(preds[0][1])
+    err_one = abs(np.percentile(pred_one, (100 - percentile) / 2. ) - np.percentile(pred_one, 100 - (100 - percentile) / 2.))/2
+    err_two = abs(np.percentile(pred_two, (100 - percentile) / 2. ) - np.percentile(pred_two, 100 - (100 - percentile) / 2.))/2
+    
+    return err_one, err_two
+
+
+def load_models():
+    all_models = list()
+    # load model from file
+    nn = tf.keras.models.load_model('models/NN.h5')
+    rf = joblib.load('models/RF.sav')
+    bag = joblib.load('models/Bagging.sav')
+    extra = joblib.load('models/ExtraTR.sav')
+    # add to list of members
+    all_models.append(nn)
+    all_models.append(rf)
+    all_models.append(bag)
+    all_models.append(extra)
+    print('>loaded %s' % nn)
+    print('>loaded %s' % rf)
+    print('>loaded %s' % bag)
+    print('>loaded %s' % extra)
+
+    return all_models
+
+def define_stacked_model(members):
+    # update all layers in all models to not be trainable
+    for i in range(len(members)):
+        model = members[i]
+        for layer in model.layers:
+            # make not trainable
+            layer.trainable = False
+            # rename to avoid 'unique layer name' issue
+            layer._name = 'ensemble_' + str(i + 1) + '_' + layer.name
+    # define multi-headed input
+    ensemble_visible = [model.input for model in members]
+    # concatenate merge output from each model
+    ensemble_outputs = [model.output for model in members]
+    merge = concatenate(ensemble_outputs)
+    # hidden = Dense(20, activation='relu')(merge)
+    output = Dense(2, activation='linear')(merge)
+    model = Model(inputs=ensemble_visible, outputs=merge)
+    # plot graph of ensemble
+    plot_model(model, show_shapes=True, to_file='model_graph.png')
+    # compile
+    model.compile(loss='mean_squared_error', optimizer='adam', metrics=["mean_squared_error"])
+    return model
+
+
+# fit a stacked model
+def fit_stacked_model(model, inputX, inputy):
+    # prepare input data
+    X = [inputX for _ in range(len(model.input))]
+    # fit model
+    blackbox = model.fit(X, inputy, epochs=100, verbose=0, validation_split=0.15)
+    evaluation(blackbox)
+
+
+# make a prediction with a stacked model
+def predict_stacked_model(model, inputX):
+    # prepare input data
+    X = [inputX for _ in range(len(model.input))]
+    p = model.predict(X, verbose=0)
+    t = np.reshape(p, (len(p), 4, 2))
+    # make prediction
+    return np.mean(t, axis=1)
+
+
+def predict(models, inputX):
+    p = predict_stacked_model(models[0], inputX)
+    p = np.dstack((p, models[1].predict(inputX)))
+    p = np.dstack((p, models[2].predict(inputX)))
+    p = np.dstack((p, models[3].predict(inputX)))
+    p = np.pi / 2 * p
+    return np.mean(p, axis=2)[0], np.std(p, axis=2)[0]
+
+
+def random_batch(x_train, y_train):
+    # Total number of images in the training-set.
+    num_images = len(x_train)
+    # Create a random index into the training-set.
+    idx = np.random.choice(num_images,
+                           size=10**4,
+                           replace=False)
+    # Use the random index to select random images and labels.
+    x_batch = x_train.values[idx, :]  # Images.
+    y_batch = y_train.values[idx, :]  # Labels.
+    # Return the batch.
+    return x_batch, y_batch

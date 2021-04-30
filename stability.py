@@ -300,15 +300,14 @@ def grad_two_dot(c, cc):
                      (cg1 * (cm - c2)) / (cg2 * (cm - c1))))
 
 
-def alpha_matrix(grad_neg):
+def alpha_matrix(grad):
     """
     Extracts alpha matrix from negative gradients
-    :param grad_neg: negative fitted gradients
+    :param grad: negative fitted gradients
     :param N_QD: number of QDs
     :return: alpha matrix
     """
-    t = np.arctan(grad_neg)
-
+    t = grad - np.pi/2
     alpha = np.zeros((2, 2))
 
     alpha[0, 0], alpha[0, 1] = -np.sin(t[0]), np.cos(t[0])
