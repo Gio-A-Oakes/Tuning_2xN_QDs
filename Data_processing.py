@@ -146,7 +146,6 @@ def minimise_plane(param, x, y, z):
 def linear(x, z):
     return (np.median(z[np.where(x==np.min(x))])-np.median(z[np.where(x==np.max(x))]))/(np.min(x)-np.max(x))
 
-
 def remove_background(x, y, z):
     p = gradient_exp(x, y, z)
     param = np.array((linear(x, z), linear(y,z), np.median(p)))
@@ -154,6 +153,15 @@ def remove_background(x, y, z):
     p_n = normalise(p - linear_plane(x, y, sol.x))
     return p_n*(np.max(z)-np.min(z)) + np.min(z)
 
+def grad_exp(z, val_x, val_y):
+    val = z.reshape(val_y, val_x)
+    scharr = np.array([[ -3-3j, 0-10j,  +3 -3j],
+                   [-10+0j, 0+ 0j, +10 +0j],
+                   [ -3+3j, 0+10j,  +3 +3j]]) # Gx + j*Gy
+    grad = ss.convolve2d(val, scharr, boundary='symm', mode='same')
+    index = np.where(np.logical_or(abs(np.angle(grad).flatten())<=0.15, abs(np.angle(grad).flatten())>=np.pi-0.15))
+    z[index] = 0
+    return z
 
 def get_klpq_div(p_probs, q_probs):
     # Calcualtes the Kullback-Leibler divergence between pi and qi
@@ -234,7 +242,6 @@ def intense(z, index):
 
 
 def threshold_experimental(vg1, vg2, i, q):
-    
     i_g, q_g = remove_background(vg1, vg2, i), remove_background(vg1, vg2, q)
     m_i, m_q = threshold_DKL(i_g), threshold_DKL(q_g)
     index = np.unique(np.append(m_i, m_q))
@@ -303,12 +310,12 @@ def thinning(Vg1, Vg2, i_g, q_g, ind):
     mask = np.ones(M.shape,dtype=bool) 
     mask[ind] = False
     M[mask] = 0
-    
+    M = grad_exp(M, val_x, val_y)
     # Find peaks along x
     if val_x > 100:
-        peaks, hight = ss.find_peaks(M, width=3, distance=val_x//100)
+        peaks, hight = ss.find_peaks(M, width=1, distance=val_x//100)
     else:
-        peaks, hight = ss.find_peaks(M, width=3)
+        peaks, hight = ss.find_peaks(M, width=1)
         
     xs, ys, zs = Vg1[peaks], Vg2[peaks], M[peaks]
     
@@ -318,9 +325,9 @@ def thinning(Vg1, Vg2, i_g, q_g, ind):
     Mt = np.reshape(np.transpose(np.reshape(M, (val_y, val_x))), np.shape(M))
     
     if val_y > 100:
-        peaks, hight = ss.find_peaks(Mt, width=3, distance=val_y//100)
+        peaks, hight = ss.find_peaks(Mt, width=1, distance=val_y//100)
     else:
-        peaks, hight = ss.find_peaks(Mt, width=3)
+        peaks, hight = ss.find_peaks(Mt, width=1)
     # add peaks from both directions
     xs, ys, zs = np.append(xs, xt[peaks]), np.append(ys, yt[peaks]), np.append(zs, Mt[peaks])
 #    xs, ys, zs = averaging_xy(xs, ys, zs, 100, 10)
