@@ -1,5 +1,5 @@
 ## Automatic virtual voltage extraction of a 2×N array of quantum dots with machine learning:
-[![DOI](https://zenodo.org/badge/283266641.svg)](https://zenodo.org/badge/latestdoi/283266641)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4739264.svg)](https://doi.org/10.5281/zenodo.4739264)
 
 Implementation of the paper:
 
