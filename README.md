@@ -4,7 +4,8 @@
 Implementation of the paper:
 
 [arxiv preprint](https://arxiv.org/abs/2012.03685)
-
+Due to the size of the regression models, they can be found at [this Google drive folder](https://drive.google.com/drive/folders/1amMVMkTsCeIiJBEwIU3OSW-6XexxewId)
+The experimental data instead can be downloaded from [here:](https://drive.google.com/drive/folders/1amMVMkTsCeIiJBEwIU3OSW-6XexxewId)
 
 ## Simulating a 2xN array of QDs:
 
